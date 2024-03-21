@@ -97,7 +97,7 @@ def segment_image(depth_map, original_image):
     return refined_mask, produced_image, [x,y,w,h]
 
 
-def process_image(input_image, filename):
+def process_image(input_image, filename, blur=True):
     original_image = deepcopy(input_image)
 
     h, w = input_image.shape[:2]
@@ -123,6 +123,15 @@ def process_image(input_image, filename):
 
     cv2.rectangle(original_image, (bbox[0], bbox[1]), (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 0), 2)
 
+    if blur:
+        blurred = blur_image(original_image, produced_image)
+        blurred.save(os.path.join(args.outdir, os.path.basename(filename[:filename.rfind('.')]) + '_blurred_img.png'))
+
+    cv2.imwrite(os.path.join(args.outdir, os.path.basename(filename[:filename.rfind('.')]) + '_heatmap_img.png'), refined_mask)
+    cv2.imwrite(os.path.join(args.outdir, os.path.basename(filename[:filename.rfind('.')]) + '_produced_img.png'), produced_image)
+    cv2.imwrite(os.path.join(args.outdir, os.path.basename(filename[:filename.rfind('.')]) + '_bbox_img.png'), original_image)
+
+def blur_image(original_image, produced_image):
     opencv_blurred = cv2.GaussianBlur(original_image, (99,99), 0)
     blurred_rgb = cv2.cvtColor(opencv_blurred, cv2.COLOR_BGR2RGB)
     mask_rgb = cv2.cvtColor(produced_image, cv2.COLOR_BGR2RGB)
@@ -144,11 +153,7 @@ def process_image(input_image, filename):
     mask.putdata(newData)
     blurred.paste(mask, (0,0), mask)
 
-    cv2.imwrite(os.path.join(args.outdir, os.path.basename(filename[:filename.rfind('.')]) + '_heatmap_img.png'), refined_mask)
-    cv2.imwrite(os.path.join(args.outdir, os.path.basename(filename[:filename.rfind('.')]) + '_produced_img.png'), produced_image)
-    cv2.imwrite(os.path.join(args.outdir, os.path.basename(filename[:filename.rfind('.')]) + '_bbox_img.png'), original_image)
-    blurred.save(os.path.join(args.outdir, os.path.basename(filename[:filename.rfind('.')]) + '_blurred_img.png'))
-
+    return blurred
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
