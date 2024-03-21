@@ -1,8 +1,3 @@
-import sys
-import os
-submodule_path = os.path.abspath(os.path.join(f"{os.path.dirname(__file__)}", 'Depth-Anything'))
-sys.path.append(submodule_path)
-
 from depth_anything.dpt import DepthAnything
 from depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
 from PIL import Image
@@ -65,14 +60,16 @@ def segment_image(depth_map, original_image):
 
     produced_image = original_image
 
+    '''
+        REPLACES:
+        for y in range(0, depth_map.shape[0]):
+            for x in range(0, depth_map.shape[1]):
+                produced_image[y, x] = [255, 255, 255] if refined_mask[y, x] <= THRESHOLD else original_image[y, x]
+    '''
     refined_mask = cv2.bitwise_and(depth_map, thresholded_image)
     threshold_mask = refined_mask <= THRESHOLD
     produced_image[threshold_mask] = [255, 255, 255]
     produced_image[~threshold_mask] = original_image[~threshold_mask]
-
-    '''for y in range(0, depth_map.shape[0]):
-        for x in range(0, depth_map.shape[1]):
-            produced_image[y, x] = [255, 255, 255] if refined_mask[y, x] <= THRESHOLD else original_image[y, x]'''
 
     seg_image = cv2.cvtColor(produced_image, cv2.COLOR_BGR2RGB)
 
@@ -80,7 +77,7 @@ def segment_image(depth_map, original_image):
     input_image = transform(seg_image)
     input_image = input_image.unsqueeze(0)  # Add batch dimension
 
-    # Perform semantic segmentation
+    # Perform semantic segmentation to extract person from image
     with torch.no_grad():
         output = model(input_image)['out'][0]
         output_predictions = output.argmax(0)
@@ -88,12 +85,12 @@ def segment_image(depth_map, original_image):
     person_mask = (output_predictions == 15).cpu().numpy().astype(np.uint8)
     person_mask_resized = cv2.resize(person_mask, (produced_image.shape[1], produced_image.shape[0]), interpolation=cv2.INTER_NEAREST)
 
-    for y in range(0, depth_map.shape[0]):
-        for x in range(0, depth_map.shape[1]):
-            produced_image[y, x] = [255, 255, 255] if person_mask_resized[y, x] < 1 else original_image[y, x]
+    produced_image[person_mask_resized] = [255, 255, 255] 
+    produced_image[~person_mask_resized] = original_image[~person_mask_resized]
 
     contours, _ = cv2.findContours(person_mask_resized, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
+    # Draw bounding boxes
     largest_contour = max(contours, key=cv2.contourArea)
     x, y, w, h = cv2.boundingRect(largest_contour)
 
@@ -126,7 +123,7 @@ def process_image(input_image, filename):
 
     cv2.rectangle(original_image, (bbox[0], bbox[1]), (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 0), 2)
 
-    opencv_blurred = cv2.GaussianBlur(cv2.imread(filename), (99,99), 0)
+    opencv_blurred = cv2.GaussianBlur(original_image, (99,99), 0)
     blurred_rgb = cv2.cvtColor(opencv_blurred, cv2.COLOR_BGR2RGB)
     mask_rgb = cv2.cvtColor(produced_image, cv2.COLOR_BGR2RGB)
 
@@ -189,7 +186,7 @@ if __name__ == '__main__':
     for filename in tqdm(filenames):
         input_image = cv2.imread(filename)
 
-        process_image(input_image, filename)
+        process_image(input_image, filename) # Call this for single images or single frames in a video
 
         
 
