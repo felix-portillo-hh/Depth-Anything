@@ -92,6 +92,8 @@ def segment_image(depth_map, original_image, threshold):
     contours, _ = cv2.findContours(person_mask_resized, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     # Draw bounding boxes
+    if len(contours) == 0:
+        return refined_mask, produced_image, None
     largest_contour = max(contours, key=cv2.contourArea)
     x, y, w, h = cv2.boundingRect(largest_contour)
 
@@ -239,15 +241,13 @@ if __name__ == '__main__':
                 combined_result_frame = cv2.hconcat([raw_frame,split_region,produced_frame])
                 if args.blur and blurred_image:
                     blur_ret = blurred_out.write(cv2.hconcat([raw_frame,split_region,cv2.cvtColor(np.array(blurred_image), cv2.COLOR_BGR2RGB)]))
-                if args.bbox:
+                if args.bbox and bbox is not None:
                     boxed_frame = deepcopy(raw_frame)
-                    cv2.rectangle(boxed_frame, (bbox[0], bbox[1]), (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 0), 2)
-                    
+                    cv2.rectangle(boxed_frame, (bbox[0], bbox[1]), (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 0), 2)   
                     box_ret = box_out.write(cv2.hconcat([raw_frame,split_region,boxed_frame]))
               
                 ret = out.write(combined_result_frame)
                 print(fno, " ---frame")
-
 
             else:
                 continue

@@ -91,6 +91,8 @@ def segment_image(depth_map, original_image):
     contours, _ = cv2.findContours(person_mask_resized, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     # Draw bounding boxes
+    if len(contours) == 0:
+        return refined_mask, produced_image, None
     largest_contour = max(contours, key=cv2.contourArea)
     x, y, w, h = cv2.boundingRect(largest_contour)
 
