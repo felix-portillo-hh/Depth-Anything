@@ -168,7 +168,7 @@ if __name__ == '__main__':
     parser.add_argument('--threshold', type=int, default=THRESHOLD)
     parser.add_argument('--blur', type=bool, default=True, action=argparse.BooleanOptionalAction)
     parser.add_argument('--bbox', type=bool, default=True, action=argparse.BooleanOptionalAction)
-    
+    parser.add_argument('--val-only', type=bool, default=False)
     args = parser.parse_args()
     
     margin_width = 50
@@ -198,8 +198,13 @@ if __name__ == '__main__':
         filename = os.path.basename(filename)
         vid_writer = cv2.VideoWriter.fourcc(*'mp4v')
 
+        if args.val_only:
+            output_vid_dims = (frame_width, frame_height)
+        else:
+            output_vid_dims = (output_width, frame_height)
+
         output_path = os.path.join(args.outdir, filename[:filename.rfind('.')] + datetime.datetime.now().strftime("%d-%m-%Y-%H_%M_%S") + '_concat_video.mp4')
-        out = cv2.VideoWriter(output_path, vid_writer, frame_rate, (output_width, frame_height))
+        out = cv2.VideoWriter(output_path, vid_writer, frame_rate, output_vid_dims)
         print(f"OUT PATH: {output_path}")
         if not out.isOpened():
             raise ValueError("Error: VideoWriter initialization failed.")
@@ -208,11 +213,11 @@ if __name__ == '__main__':
 
         if args.blur:
             blurred_path = os.path.join(args.outdir, filename[:filename.rfind('.')] + datetime.datetime.now().strftime("%d-%m-%Y-%H_%M_%S") + '_blurred.mp4')
-            blurred_out = cv2.VideoWriter(blurred_path, vid_writer, frame_rate, (output_width, frame_height))
+            blurred_out = cv2.VideoWriter(blurred_path, vid_writer, frame_rate, output_vid_dims)
             print(f"BLUR PATH: {blurred_path}")
         if args.bbox:
             bbox_path = os.path.join(args.outdir, filename[:filename.rfind('.')] + datetime.datetime.now().strftime("%d-%m-%Y-%H_%M_%S") + '_bbox.mp4')
-            box_out = cv2.VideoWriter(bbox_path, vid_writer, frame_rate, (output_width, frame_height))
+            box_out = cv2.VideoWriter(bbox_path, vid_writer, frame_rate, output_vid_dims)
             print(f"BBOX PATH: {bbox_path}")
 
 
@@ -235,16 +240,31 @@ if __name__ == '__main__':
                     produced_frame[y, x] = [255, 255, 255] if gray_scale <= THRESHOLD else produced_frame[y, x]
             '''
             print("PROCESSING VIDEO FRAME")
+            '''if fno % frame_rate == 0:
+                depthmap, produced_frame, blurred_image, bbox = process_image(produced_frame, depth_anything, transformer, args.threshold, args.blur)
+            '''
             depthmap, produced_frame, blurred_image, bbox = process_image(produced_frame, depth_anything, transformer, args.threshold, args.blur)
 
             if produced_frame is not None:
-                combined_result_frame = cv2.hconcat([raw_frame,split_region,produced_frame])
+                if args.val_only:
+                    combined_result_frame = produced_frame
+                else:
+                    combined_result_frame = cv2.hconcat([raw_frame,split_region,produced_frame])
                 if args.blur and blurred_image:
-                    blur_ret = blurred_out.write(cv2.hconcat([raw_frame,split_region,cv2.cvtColor(np.array(blurred_image), cv2.COLOR_BGR2RGB)]))
+                    if args.val_only:
+                        combined_blur_frame = cv2.cvtColor(np.array(blurred_image), cv2.COLOR_BGR2RGB)
+                    else:
+                        combined_blur_frame = cv2.hconcat([raw_frame,split_region,cv2.cvtColor(np.array(blurred_image), cv2.COLOR_BGR2RGB)])
+                    blur_ret = blurred_out.write(combined_blur_frame)
                 if args.bbox and bbox is not None:
                     boxed_frame = deepcopy(raw_frame)
+                    if args.val_only:
+                        combined_box_frame = boxed_frame
+                    else:
+                        combined_box_frame = cv2.hconcat([raw_frame,split_region,boxed_frame])
+                    
                     cv2.rectangle(boxed_frame, (bbox[0], bbox[1]), (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 0), 2)   
-                    box_ret = box_out.write(cv2.hconcat([raw_frame,split_region,boxed_frame]))
+                    box_ret = box_out.write(combined_box_frame)
               
                 ret = out.write(combined_result_frame)
                 print(fno, " ---frame")
