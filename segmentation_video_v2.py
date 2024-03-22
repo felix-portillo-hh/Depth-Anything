@@ -17,7 +17,6 @@ import datetime
 
 THRESHOLD = 100
 
-
 def build_model():
     encoder = 'vits' # can also be 'vitb' or 'vitl'
     depth_anything = DepthAnything.from_pretrained('LiheYoung/depth_anything_{:}14'.format(encoder)).eval()
@@ -46,7 +45,7 @@ def process_image_for_model(image, transformer):
 
     return image
 
-def segment_image(depth_map, original_image):
+def segment_image(depth_map, original_image, threshold):
 
     model = segmentation.lraspp_mobilenet_v3_large(pretrained=True)
     model.eval()
@@ -69,7 +68,7 @@ def segment_image(depth_map, original_image):
                 produced_image[y, x] = [255, 255, 255] if refined_mask[y, x] <= THRESHOLD else original_image[y, x]
     '''
     refined_mask = cv2.bitwise_and(depth_map, thresholded_image)
-    threshold_mask = refined_mask <= THRESHOLD
+    threshold_mask = refined_mask <= threshold
     produced_image[threshold_mask] = [255, 255, 255]
     produced_image[~threshold_mask] = original_image[~threshold_mask]
 
@@ -99,7 +98,7 @@ def segment_image(depth_map, original_image):
     return refined_mask, produced_image, [x,y,w,h]
 
 
-def process_image(input_image, filename, model, transformer, outdir, blur=True):
+def process_image(input_image, model, transformer, threshold, blur=True):
     original_image = deepcopy(input_image)
 
     h, w = input_image.shape[:2]
@@ -123,12 +122,8 @@ def process_image(input_image, filename, model, transformer, outdir, blur=True):
     print(depth_map.shape[0])
     print(depth_map.shape[1])
     
-    refined_mask, produced_image, bbox = segment_image(depth_map, input_image)
+    refined_mask, produced_image, bbox = segment_image(depth_map, input_image, threshold)
 
-
-    if blur:
-        blurred = blur_image(original_image, produced_image)
-        #blurred.save(os.path.join(outdir, os.path.basename(filename[:filename.rfind('.')]) + '_blurred_img.png'))
     '''
     cv2.imwrite(os.path.join(outdir, os.path.basename(filename[:filename.rfind('.')]) + '_heatmap_img.png'), refined_mask)
     cv2.imwrite(os.path.join(outdir, os.path.basename(filename[:filename.rfind('.')]) + '_produced_img.png'), produced_image)
@@ -168,6 +163,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--input-path', type=str)
     parser.add_argument('--outdir', type=str, default='./vis_depth')
+    parser.add_argument('--threshold', type=int, default=THRESHOLD)
     parser.add_argument('--blur', type=bool, default=True, action=argparse.BooleanOptionalAction)
     parser.add_argument('--bbox', type=bool, default=True, action=argparse.BooleanOptionalAction)
     
@@ -202,7 +198,7 @@ if __name__ == '__main__':
 
         output_path = os.path.join(args.outdir, filename[:filename.rfind('.')] + datetime.datetime.now().strftime("%d-%m-%Y-%H_%M_%S") + '_concat_video.mp4')
         out = cv2.VideoWriter(output_path, vid_writer, frame_rate, (output_width, frame_height))
-        
+        print(f"OUT PATH: {output_path}")
         if not out.isOpened():
             raise ValueError("Error: VideoWriter initialization failed.")
         else:
@@ -211,14 +207,13 @@ if __name__ == '__main__':
         if args.blur:
             blurred_path = os.path.join(args.outdir, filename[:filename.rfind('.')] + datetime.datetime.now().strftime("%d-%m-%Y-%H_%M_%S") + '_blurred.mp4')
             blurred_out = cv2.VideoWriter(blurred_path, vid_writer, frame_rate, (output_width, frame_height))
-            print(f"OUT PATH: {blurred_path}")
+            print(f"BLUR PATH: {blurred_path}")
         if args.bbox:
             bbox_path = os.path.join(args.outdir, filename[:filename.rfind('.')] + datetime.datetime.now().strftime("%d-%m-%Y-%H_%M_%S") + '_bbox.mp4')
             box_out = cv2.VideoWriter(bbox_path, vid_writer, frame_rate, (output_width, frame_height))
-            print(f"OUT PATH: {bbox_path}")
+            print(f"BBOX PATH: {bbox_path}")
 
 
-        print(f"OUT PATH: {output_path}")
         split_region = np.ones((frame_height, margin_width, 3), dtype=np.uint8) * 255
         print(total_frames)
 
@@ -237,35 +232,22 @@ if __name__ == '__main__':
                     gray_scale = np.mean(raw_frame[y, x])
                     produced_frame[y, x] = [255, 255, 255] if gray_scale <= THRESHOLD else produced_frame[y, x]
             '''
-            if fno % frame_rate == 0:
-                print("PROCESSING VIDEO FRAME")
-                depthmap, produced_frame, blurred_image, bbox = process_image(produced_frame, filename, depth_anything, transformer, args.outdir, args.blur)
-            
-            print(type(blurred_image))
-            print(type(raw_frame))
-            print(type(produced_frame))
-            print(type(split_region))
+            print("PROCESSING VIDEO FRAME")
+            depthmap, produced_frame, blurred_image, bbox = process_image(produced_frame, depth_anything, transformer, args.threshold, args.blur)
+
             if produced_frame is not None:
                 combined_result_frame = cv2.hconcat([raw_frame,split_region,produced_frame])
                 if args.blur and blurred_image:
-                    blur_ret = blurred_out.write(cv2.hconcat([raw_frame,split_region,np.array(blurred_image)]))
-                    print(f"BLUR RET: {blur_ret}")
-                
+                    blur_ret = blurred_out.write(cv2.hconcat([raw_frame,split_region,cv2.cvtColor(np.array(blurred_image), cv2.COLOR_BGR2RGB)]))
                 if args.bbox:
                     boxed_frame = deepcopy(raw_frame)
-                    cv2.rectangle(raw_frame, (bbox[0], bbox[1]), (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 0), 2)
+                    cv2.rectangle(boxed_frame, (bbox[0], bbox[1]), (bbox[0] + bbox[2], bbox[1] + bbox[3]), (0, 255, 0), 2)
                     
                     box_ret = box_out.write(cv2.hconcat([raw_frame,split_region,boxed_frame]))
-                    print(f"BOX RET: {box_ret}")
-                print("RESULTS WRITTEN TO FRAME")
-
-                print(f"COMBINED SHAPE: {combined_result_frame.shape} vs {frame_height},{frame_width} vs {frame_height},{output_width}")
-                print(f"OUT: {out}")
+              
                 ret = out.write(combined_result_frame)
-                print(f"RET VAL {ret}")
                 print(fno, " ---frame")
-                backend = cv2.VideoWriter.getBackendName(out)
-                print("Video writing backend:", backend)
+
 
             else:
                 continue
